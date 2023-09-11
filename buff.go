@@ -25,6 +25,9 @@ func New(c *Config) *Buff {
 	b.send = make(chan interface{}, c.SendBuff)
 	b.msgBatch = c.MsgBatch
 	b.runnerInterval = c.RunnerInterval
+	b.cacheName = c.CacheName
+	b.lockDuration = c.LockDuration
+	b.clearMsgFunc = c.ClearMsgFunc
 	return b
 }
 
@@ -61,9 +64,7 @@ func (b *Buff) SendMsgRunner() chan<- bool {
 				fmt.Println("redisBuff SendMsgRunner close")
 				return
 			case <-ticker.C:
-				fmt.Println("计时器触发-start")
 				b.ClearMsgWithLock()
-				fmt.Println("计时器触发-end")
 			}
 		}
 	}()
@@ -78,7 +79,7 @@ func (b *Buff) Add(data interface{}) {
 }
 
 func (b *Buff) lock() func() {
-	key := b.cacheName
+	key := fmt.Sprintf("redisBuff-lock-%s", b.cacheName)
 	for {
 		ok := rdb.SetNX(ctx, key, 1, b.lockDuration).Val()
 		if ok {
@@ -126,12 +127,10 @@ func (b *Buff) PushMsgWithLock(msg interface{}) {
 func (b *Buff) pushMsg(msg interface{}) {
 	key := b.cacheName
 	if err := rdb.RPush(ctx, key, msg).Err(); err != nil {
-		log.Fatal(err)
+		log.Fatalf("[push fail] - %v", err)
 	}
 	len := rdb.LLen(ctx, key).Val()
 	if len >= b.msgBatch { // 大于5则讯息则推送
-		fmt.Println("大于N则讯息-start")
 		b.clearMsg()
-		fmt.Println("大于N则讯息-end")
 	}
 }
