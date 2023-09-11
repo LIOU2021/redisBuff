@@ -20,15 +20,15 @@ func InitRedisClient(client redis.Cmdable) {
 	})
 }
 
-func New(c *config) *buff {
-	b := new(buff)
+func New(c *Config) *Buff {
+	b := new(Buff)
 	b.send = make(chan interface{}, c.SendBuff)
 	b.msgBatch = c.MsgBatch
 	b.runnerInterval = c.RunnerInterval
 	return b
 }
 
-type config struct {
+type Config struct {
 	SendBuff       int
 	MsgBatch       int64 // 讯息达到N则时发送
 	RunnerInterval time.Duration
@@ -37,7 +37,7 @@ type config struct {
 	ClearMsgFunc   func(msg []string) // 清除讯息时要执行的
 }
 
-type buff struct {
+type Buff struct {
 	send           chan interface{}
 	msgBatch       int64
 	runnerInterval time.Duration
@@ -47,7 +47,7 @@ type buff struct {
 }
 
 // execute runner
-func (b *buff) SendMsgRunner() chan<- bool {
+func (b *Buff) SendMsgRunner() chan<- bool {
 	done := make(chan bool)
 	ticker := time.NewTicker(b.runnerInterval)
 	go func() {
@@ -73,11 +73,11 @@ func (b *buff) SendMsgRunner() chan<- bool {
 
 // add msg
 // sendBuff满时，将堵塞
-func (b *buff) Add(data interface{}) {
+func (b *Buff) Add(data interface{}) {
 	b.send <- data
 }
 
-func (b *buff) lock() func() {
+func (b *Buff) lock() func() {
 	key := b.cacheName
 	for {
 		ok := rdb.SetNX(ctx, key, 1, b.lockDuration).Val()
@@ -92,13 +92,13 @@ func (b *buff) lock() func() {
 	}
 }
 
-func (b *buff) ClearMsgWithLock() {
+func (b *Buff) ClearMsgWithLock() {
 	unlock := b.lock()
 	defer unlock()
 	b.clearMsg()
 }
 
-func (b *buff) clearMsg() {
+func (b *Buff) clearMsg() {
 	key := b.cacheName
 	totalMsg := []string{}
 	var lenList int64
@@ -117,13 +117,13 @@ func (b *buff) clearMsg() {
 	}
 }
 
-func (b *buff) PushMsgWithLock(msg interface{}) {
+func (b *Buff) PushMsgWithLock(msg interface{}) {
 	unlock := b.lock()
 	defer unlock()
 	b.pushMsg(msg)
 }
 
-func (b *buff) pushMsg(msg interface{}) {
+func (b *Buff) pushMsg(msg interface{}) {
 	key := b.cacheName
 	if err := rdb.RPush(ctx, key, msg).Err(); err != nil {
 		log.Fatal(err)
