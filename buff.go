@@ -61,6 +61,8 @@ func New(c *Config) *Buff {
 		panic(fmt.Sprintf("[New fail] - %s", "c.ClearMsgFunc wail empty"))
 	}
 	b.clearMsgFunc = clearFunc
+
+	b.debug = c.Debug
 	return b
 }
 
@@ -71,6 +73,7 @@ type Config struct {
 	CacheName      string             // 缓存命名
 	LockDuration   time.Duration      // 分布式锁上锁时间
 	ClearMsgFunc   func(msg []string) // 清除讯息时要执行的
+	Debug          bool               // debug model
 }
 
 type Buff struct {
@@ -80,6 +83,7 @@ type Buff struct {
 	cacheName      string
 	lockDuration   time.Duration
 	clearMsgFunc   func(msg []string)
+	debug          bool
 }
 
 // execute runner
@@ -98,24 +102,36 @@ func (b *Buff) SendMsgRunner() chan<- bool {
 				s := make(chan bool)
 				go func() { // 等chan上的讯息处理完后才能关闭
 					for len(b.send) > 0 {
+						b.debugMsg("[%s] - chan上还有讯息\n", b.cacheName)
 						time.Sleep(200 * time.Second)
 					}
 					s <- true
 					close(s)
 				}()
 				<-s
-				fmt.Println("redisBuff SendMsgRunner close")
+				fmt.Printf("redisBuff SendMsgRunner close - %s\n", b.cacheName)
 				return
 			case <-ticker.C:
+				b.debugMsg("[%s] - 循环触发-start\n", b.cacheName)
 				if ok := b.getIntervalLock(); !ok {
+					b.debugMsg("[%s] - 循环触发-没拿到lock\n", b.cacheName)
 					continue
 				}
 				b.clearMsgWithLock()
+				b.debugMsg("[%s] - 循环触发-end\n", b.cacheName)
 			}
 		}
 	}()
 
 	return done
+}
+
+func (b *Buff) debugMsg(format string, a ...any) {
+	if !b.debug {
+		return
+	}
+
+	fmt.Printf(format, a...)
 }
 
 func (b *Buff) getIntervalLock() (ok bool) {
@@ -130,6 +146,7 @@ func (b *Buff) Add(data interface{}) {
 	b.send <- data
 }
 
+// 读写讯息要用的
 func (b *Buff) lock() func() {
 	key := fmt.Sprintf("redisBuff-base-lock-%s", b.cacheName)
 	for {
@@ -183,6 +200,8 @@ func (b *Buff) pushMsg(msg interface{}) {
 	}
 	len := rdb.LLen(ctx, key).Val()
 	if len >= b.msgBatch { // 大于N则讯息则推送
+		b.debugMsg("[%s] - 大于N则讯息推送 - start\n", b.cacheName)
 		b.clearMsg()
+		b.debugMsg("[%s] - 大于N则讯息推送 - end\n", b.cacheName)
 	}
 }

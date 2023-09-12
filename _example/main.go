@@ -35,6 +35,7 @@ func main() {
 		ClearMsgFunc: func(msg []string) {
 			fmt.Println(msg)
 		},
+		Debug: true,
 	}
 
 	s1 := redisBuff.New(c1)
@@ -43,10 +44,19 @@ func main() {
 	go testAdd(s1)
 	go loopAdd(s1)
 
+	c2 := *c1
+	c2.CacheName += "-2"
+	s2 := redisBuff.New(&c2)
+	closeRunner2 := s2.SendMsgRunner()
+
+	go testAdd(s2)
+	go loopAdd(s2)
+
 	select {
 	case <-time.After(10 * time.Second):
 		fmt.Println("send closeRunner signal")
 		closeRunner <- true
+		closeRunner2 <- true
 	}
 }
 
