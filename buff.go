@@ -59,12 +59,12 @@ func (b *Buff) SendMsgRunner() chan<- bool {
 		for {
 			select {
 			case msg := <-b.send:
-				b.PushMsgWithLock(msg)
+				b.pushMsgWithLock(msg)
 			case <-done:
 				fmt.Println("redisBuff SendMsgRunner close")
 				return
 			case <-ticker.C:
-				b.ClearMsgWithLock()
+				b.clearMsgWithLock()
 			}
 		}
 	}()
@@ -93,7 +93,7 @@ func (b *Buff) lock() func() {
 	}
 }
 
-func (b *Buff) ClearMsgWithLock() {
+func (b *Buff) clearMsgWithLock() {
 	unlock := b.lock()
 	defer unlock()
 	b.clearMsg()
@@ -118,7 +118,7 @@ func (b *Buff) clearMsg() {
 	}
 }
 
-func (b *Buff) PushMsgWithLock(msg interface{}) {
+func (b *Buff) pushMsgWithLock(msg interface{}) {
 	unlock := b.lock()
 	defer unlock()
 	b.pushMsg(msg)
