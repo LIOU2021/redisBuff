@@ -182,7 +182,7 @@ func (b *Buff) pushMsg(msg interface{}) {
 		log.Fatalf("[push fail] - %v", err)
 	}
 	len := rdb.LLen(ctx, key).Val()
-	if len >= b.msgBatch { // 大于5则讯息则推送
+	if len >= b.msgBatch { // 大于N则讯息则推送
 		b.clearMsg()
 	}
 }
