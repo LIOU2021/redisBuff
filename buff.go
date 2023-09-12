@@ -18,23 +18,56 @@ func InitRedisClient(client redis.Cmdable) {
 	rdbOnce.Do(func() {
 		rdb = client
 	})
+
+	if err := rdb.Ping(ctx).Err(); err != nil {
+		panic(fmt.Sprintf("[InitRedisClient fail] - %v", err))
+	}
 }
 
 func New(c *Config) *Buff {
 	b := new(Buff)
-	b.send = make(chan interface{}, c.SendBuff)
-	b.msgBatch = c.MsgBatch
-	b.runnerInterval = c.RunnerInterval
+
+	sendBuff := c.SendBuff
+	if sendBuff < 1 {
+		sendBuff = 100
+	}
+	b.send = make(chan interface{}, sendBuff)
+
+	msgBatch := c.MsgBatch
+	if msgBatch < 1 {
+		msgBatch = 5
+	}
+	b.msgBatch = msgBatch
+
+	runnerInterval := c.RunnerInterval
+	if runnerInterval < 1 {
+		runnerInterval = time.Millisecond * 5000
+	}
+	b.runnerInterval = runnerInterval
+
+	if c.CacheName == "" {
+		panic(fmt.Sprintf("[New fail] - %s", "c.CacheName wail empty"))
+	}
 	b.cacheName = c.CacheName
-	b.lockDuration = c.LockDuration
-	b.clearMsgFunc = c.ClearMsgFunc
+
+	lockDuration := c.LockDuration
+	if lockDuration < 1 {
+		lockDuration = time.Second * 3
+	}
+	b.lockDuration = lockDuration
+
+	clearFunc := c.ClearMsgFunc
+	if clearFunc == nil {
+		panic(fmt.Sprintf("[New fail] - %s", "c.ClearMsgFunc wail empty"))
+	}
+	b.clearMsgFunc = clearFunc
 	return b
 }
 
 type Config struct {
-	SendBuff       int
-	MsgBatch       int64 // 讯息达到N则时发送
-	RunnerInterval time.Duration
+	SendBuff       int                // 决定发送讯息时使用的chan的buff大小
+	MsgBatch       int64              // 讯息达到N则时发送
+	RunnerInterval time.Duration      // 每N时间排程执行一次讯息处理
 	CacheName      string             // 缓存命名
 	LockDuration   time.Duration      // 分布式锁上锁时间
 	ClearMsgFunc   func(msg []string) // 清除讯息时要执行的
@@ -61,15 +94,34 @@ func (b *Buff) SendMsgRunner() chan<- bool {
 			case msg := <-b.send:
 				b.pushMsgWithLock(msg)
 			case <-done:
+				close(b.send)
+				s := make(chan bool)
+				go func() { // 等chan上的讯息处理完后才能关闭
+					for len(b.send) > 0 {
+						time.Sleep(200 * time.Second)
+					}
+					s <- true
+					close(s)
+				}()
+				<-s
 				fmt.Println("redisBuff SendMsgRunner close")
 				return
 			case <-ticker.C:
+				if ok := b.getIntervalLock(); !ok {
+					continue
+				}
 				b.clearMsgWithLock()
 			}
 		}
 	}()
 
 	return done
+}
+
+func (b *Buff) getIntervalLock() (ok bool) {
+	key := fmt.Sprintf("redisBuff-interval-lock-%s", b.cacheName)
+	ok = rdb.SetNX(ctx, key, 1, b.runnerInterval-200*time.Millisecond).Val()
+	return
 }
 
 // add msg
@@ -79,7 +131,7 @@ func (b *Buff) Add(data interface{}) {
 }
 
 func (b *Buff) lock() func() {
-	key := fmt.Sprintf("redisBuff-lock-%s", b.cacheName)
+	key := fmt.Sprintf("redisBuff-base-lock-%s", b.cacheName)
 	for {
 		ok := rdb.SetNX(ctx, key, 1, b.lockDuration).Val()
 		if ok {

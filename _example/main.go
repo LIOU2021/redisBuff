@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"sync"
 	"time"
@@ -15,11 +16,16 @@ var rdb = redis.NewClient(&redis.Options{
 	DB:       0,  // use default DB
 })
 
+var flagvar int
+
 func init() {
 	redisBuff.InitRedisClient(rdb)
+	flag.IntVar(&flagvar, "flag", 999, "help message for flag")
 }
 
 func main() {
+	flag.Parse()
+
 	c1 := &redisBuff.Config{
 		SendBuff:       100,
 		MsgBatch:       5,
@@ -35,9 +41,11 @@ func main() {
 	closeRunner := s1.SendMsgRunner()
 
 	go testAdd(s1)
+	go loopAdd(s1)
 
 	select {
-	case <-time.After(5 * time.Second):
+	case <-time.After(10 * time.Second):
+		fmt.Println("send closeRunner signal")
 		closeRunner <- true
 	}
 }
@@ -52,5 +60,11 @@ func testAdd(b *redisBuff.Buff) {
 		}(i, &wg)
 	}
 	wg.Wait()
+}
 
+func loopAdd(b *redisBuff.Buff) {
+	for {
+		b.Add(flagvar)
+		time.Sleep(200 * time.Millisecond)
+	}
 }
