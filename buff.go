@@ -102,6 +102,8 @@ type Buff struct {
 	debug          bool
 	readLockName   string
 	writeLockName  string
+	L              sync.RWMutex
+	close          bool
 }
 
 // execute runner
@@ -116,7 +118,11 @@ func (b *Buff) SendMsgRunner() chan<- bool {
 			case msg := <-b.send:
 				b.pushMsgWithLock(msg)
 			case <-done:
+				b.L.Lock()
 				close(b.send)
+				b.close = true
+				b.L.Unlock()
+
 				s := make(chan bool)
 				go func() { // 等chan上的讯息处理完后才能关闭
 					for len(b.send) > 0 {
@@ -162,7 +168,11 @@ func (b *Buff) getIntervalLock() (ok bool) {
 // add msg
 // sendBuff满时，将堵塞
 func (b *Buff) Add(data interface{}) {
-	b.send <- data
+	b.L.RLock()
+	defer b.L.RUnlock()
+	if !b.close {
+		b.send <- data
+	}
 }
 
 // 获取目前缓存上的资料
@@ -184,17 +194,17 @@ func (b *Buff) RLock() func() { // 怪怪的，打印频率有点怪
 		if rdb.Exists(ctx, b.writeLockName).Val() < 1 {
 			break
 		}
-		b.debugMsg("[%s RLock] - 等待写锁释放\n", b.cacheName)
+		// b.debugMsg("[%s RLock] - 等待写锁释放\n", b.cacheName)
 		time.Sleep(100 * time.Millisecond)
 	}
 
 	t := time.Now().Nanosecond()
 	rdb.Set(ctx, b.readLockName, t, b.rlockDuration)
-	b.debugMsg("[%s RLock] - 获得读锁\n", b.cacheName)
+	// b.debugMsg("[%s RLock] - 获得读锁\n", b.cacheName)
 	return func() {
 		v, _ := strconv.Atoi(rdb.Get(ctx, b.readLockName).Val())
 		if v == t {
-			b.debugMsg("[%s RLock] - 释放读锁\n", b.cacheName)
+			// b.debugMsg("[%s RLock] - 释放读锁\n", b.cacheName)
 			rdb.Del(ctx, b.readLockName)
 		}
 	}
@@ -206,21 +216,22 @@ func (b *Buff) lock() func() {
 		if rdb.Exists(ctx, b.readLockName).Val() < 1 {
 			break
 		}
-		b.debugMsg("[%s Lock] - 等待读锁释放\n", b.cacheName)
-		time.Sleep(100 * time.Second)
+		// b.debugMsg("[%s Lock] - 等待读锁释放\n", b.cacheName)
+		time.Sleep(100 * time.Millisecond)
 	}
 
 	for {
 		ok := rdb.SetNX(ctx, b.writeLockName, 1, b.lockDuration).Val()
 		if ok {
-			b.debugMsg("[%s Lock] - 获得写锁\n", b.cacheName)
+			// b.debugMsg("[%s Lock] - 获得写锁\n", b.cacheName)
 			break
 		}
+		// b.debugMsg("[%s Lock] - 读锁抢占失败\n", b.cacheName)
 		time.Sleep(time.Millisecond * 50)
 	}
 
 	return func() {
-		b.debugMsg("[%s Lock] - 释放写锁\n", b.cacheName)
+		// b.debugMsg("[%s Lock] - 释放写锁\n", b.cacheName)
 		rdb.Del(ctx, b.writeLockName)
 	}
 }

@@ -26,19 +26,7 @@ func init() {
 func main() {
 	flag.Parse()
 
-	c1 := &redisBuff.Config{
-		SendBuff:       100,
-		MsgBatch:       5,
-		RunnerInterval: 5 * time.Second,
-		CacheName:      "message-test",
-		LockDuration:   3 * time.Second,
-		RLockDuration:  3 * time.Second,
-		ClearMsgFunc: func(msg []string) {
-			fmt.Println("from client: ", msg)
-		},
-		Debug: true,
-	}
-
+	c1 := newConfig("message-test-1")
 	s1 := redisBuff.New(c1)
 	closeRunner := s1.SendMsgRunner()
 
@@ -46,9 +34,8 @@ func main() {
 	go loopAdd(s1)
 	go testReadList(s1)
 
-	c2 := *c1
-	c2.CacheName += "-2"
-	s2 := redisBuff.New(&c2)
+	c2 := newConfig("message-test-2")
+	s2 := redisBuff.New(c2)
 	closeRunner2 := s2.SendMsgRunner()
 
 	go testAdd(s2)
@@ -60,9 +47,24 @@ func main() {
 		fmt.Println("send closeRunner signal")
 		closeRunner <- true
 		closeRunner2 <- true
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 
+func newConfig(name string) *redisBuff.Config {
+	return &redisBuff.Config{
+		SendBuff:       100,
+		MsgBatch:       5,
+		RunnerInterval: 5 * time.Second,
+		CacheName:      name,
+		LockDuration:   3 * time.Second,
+		RLockDuration:  3 * time.Second,
+		ClearMsgFunc: func(msg []string) {
+			fmt.Println("from client: ", msg)
+		},
+		// Debug: true,
+	}
+}
 func testAdd(b *redisBuff.Buff) {
 	var wg sync.WaitGroup
 	for i := 0; i < 30; i++ {
@@ -80,11 +82,6 @@ func testReadList(b *redisBuff.Buff) {
 		go func() {
 			fmt.Println("from testReadList-1: ", b.List())
 		}()
-	}
-
-	for {
-		fmt.Println("from testReadList-2: ", b.List())
-		time.Sleep(500 * time.Millisecond)
 	}
 }
 
