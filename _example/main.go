@@ -32,8 +32,9 @@ func main() {
 		RunnerInterval: 5 * time.Second,
 		CacheName:      "message-test",
 		LockDuration:   3 * time.Second,
+		RLockDuration:  3 * time.Second,
 		ClearMsgFunc: func(msg []string) {
-			fmt.Println(msg)
+			fmt.Println("from client: ", msg)
 		},
 		Debug: true,
 	}
@@ -43,6 +44,7 @@ func main() {
 
 	go testAdd(s1)
 	go loopAdd(s1)
+	go testReadList(s1)
 
 	c2 := *c1
 	c2.CacheName += "-2"
@@ -51,6 +53,7 @@ func main() {
 
 	go testAdd(s2)
 	go loopAdd(s2)
+	go testReadList(s2)
 
 	select {
 	case <-time.After(10 * time.Second):
@@ -70,6 +73,19 @@ func testAdd(b *redisBuff.Buff) {
 		}(i, &wg)
 	}
 	wg.Wait()
+}
+
+func testReadList(b *redisBuff.Buff) {
+	for i := 0; i < 10; i++ {
+		go func() {
+			fmt.Println("from testReadList-1: ", b.List())
+		}()
+	}
+
+	for {
+		fmt.Println("from testReadList-2: ", b.List())
+		time.Sleep(500 * time.Millisecond)
+	}
 }
 
 func loopAdd(b *redisBuff.Buff) {
