@@ -189,7 +189,7 @@ func (b *Buff) List() []string {
 }
 
 // 读锁
-func (b *Buff) RLock() func() { // 怪怪的，打印频率有点怪
+func (b *Buff) RLock() func() {
 	for {
 		if rdb.Exists(ctx, b.writeLockName).Val() < 1 {
 			break
